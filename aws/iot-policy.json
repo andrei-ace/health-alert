@@ -4,7 +4,7 @@
         {
             "Effect": "Allow",
             "Action": "iot:AssumeRoleWithCertificate",
-            "Resource": "arn:aws:iot:us-west-2:658526085843:rolealias/Health"
+            "Resource": "arn:aws:iot:[region]:[account]:rolealias/Health"
         },
         {
             "Effect": "Allow",
