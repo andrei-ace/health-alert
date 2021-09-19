@@ -48,17 +48,14 @@
 #include "core2forAWS.h"
 
 #include "wifi.h"
-#include "blink.h"
 #include "ui.h"
+#include "bl.h"
 
 /* The time between each MQTT message publish in milliseconds */
 #define PUBLISH_INTERVAL_MS 3000
 
 /* The time prefix used by the logger. */
 static const char *TAG = "MAIN";
-
-/* The FreeRTOS task handler for the blink task that can be used to control the task later */
-TaskHandle_t xBlink;
 
 /* CA Root certificate */
 extern const uint8_t aws_root_ca_pem_start[] asm("_binary_aws_root_ca_pem_start");
@@ -70,31 +67,37 @@ char HostAddress[255] = AWS_IOT_MQTT_HOST;
 /* Default MQTT port is pulled from the aws_iot_config.h */
 uint32_t port = AWS_IOT_MQTT_PORT;
 
+QueueHandle_t msg_queue;
+static const int msg_queue_len = 5;
+
+QueueHandle_t msg_queue_infected;
+QueueHandle_t msg_queue_check;
+
 void iot_subscribe_callback_handler(AWS_IoT_Client *pClient, char *topicName, uint16_t topicNameLen,
                                     IoT_Publish_Message_Params *params, void *pData)
 {
     ESP_LOGI(TAG, "Subscribe callback");
     ESP_LOGI(TAG, "%.*s\t%.*s", topicNameLen, topicName, (int)params->payloadLen, (char *)params->payload);
-    if (strstr(topicName, "/blink") != NULL)
-    {
-        // Get state of the FreeRTOS task, "blinkTask", using it's task handle.
-        // Suspend or resume the task depending on the returned task state
-        eTaskState blinkState = eTaskGetState(xBlink);
-        if (blinkState == eSuspended)
-        {
-            vTaskResume(xBlink);
-        }
-        else
-        {
-            vTaskSuspend(xBlink);
-        }
-    }
+    // if (strstr(topicName, "/blink") != NULL)
+    // {
+    //     // Get state of the FreeRTOS task, "blinkTask", using it's task handle.
+    //     // Suspend or resume the task depending on the returned task state
+    //     eTaskState blinkState = eTaskGetState(xBlink);
+    //     if (blinkState == eSuspended)
+    //     {
+    //         vTaskResume(xBlink);
+    //     }
+    //     else
+    //     {
+    //         vTaskSuspend(xBlink);
+    //     }
+    // }
 }
 
 void disconnect_callback_handler(AWS_IoT_Client *pClient, void *data)
 {
     ESP_LOGW(TAG, "MQTT Disconnect");
-    ui_textarea_add("Disconnected from AWS IoT Core...", NULL, 0);
+    // ui_textarea_add("Disconnected from AWS IoT Core...", NULL, 0);
     IoT_Error_t rc = FAILURE;
 
     if (pClient == NULL)
@@ -121,41 +124,75 @@ void disconnect_callback_handler(AWS_IoT_Client *pClient, void *data)
     }
 }
 
-static void publisher(AWS_IoT_Client *client, char *base_topic, uint16_t base_topic_len)
+static void publisher(AWS_IoT_Client *client, char *base_topic, uint16_t base_topic_len, QueueHandle_t queue)
 {
-    char cPayload[100];
+    char cPayload[MSG_QUEUE_SIZE];
     int32_t i = 0;
-
     IoT_Publish_Message_Params paramsQOS0;
-    IoT_Publish_Message_Params paramsQOS1;
-
     paramsQOS0.qos = QOS0;
     paramsQOS0.payload = (void *)cPayload;
     paramsQOS0.isRetained = 0;
 
-    // Publish and ignore if "ack" was received or  from AWS IoT Core
-    sprintf(cPayload, "%s : %d ", "Hello from AWS IoT EduKit (QOS0)", i++);
-    paramsQOS0.payloadLen = strlen(cPayload);
-    IoT_Error_t rc = aws_iot_mqtt_publish(client, base_topic, base_topic_len, &paramsQOS0);
-    if (rc != SUCCESS)
+    if (xQueueReceive(queue, (void *)cPayload, 0) == pdTRUE)
     {
-        ESP_LOGE(TAG, "Publish QOS0 error %i", rc);
-        rc = SUCCESS;
-    }
-
-    paramsQOS1.qos = QOS1;
-    paramsQOS1.payload = (void *)cPayload;
-    paramsQOS1.isRetained = 0;
-    // Publish and check if "ack" was sent from AWS IoT Core
-    sprintf(cPayload, "%s : %d ", "Hello from AWS IoT EduKit (QOS1)", i++);
-    paramsQOS1.payloadLen = strlen(cPayload);
-    rc = aws_iot_mqtt_publish(client, base_topic, base_topic_len, &paramsQOS1);
-    if (rc == MQTT_REQUEST_TIMEOUT_ERROR)
-    {
-        ESP_LOGW(TAG, "QOS1 publish ack not received.");
-        rc = SUCCESS;
+        ESP_LOGI(TAG, "Received message from queue %s", cPayload);
+        // Publish and ignore if "ack" was received or  from AWS IoT Core
+        paramsQOS0.payloadLen = strlen(cPayload);
+        IoT_Error_t rc = aws_iot_mqtt_publish(client, base_topic, base_topic_len, &paramsQOS0);
+        if (rc != SUCCESS)
+        {
+            ESP_LOGE(TAG, "Publish QOS0 error %i", rc);
+            rc = SUCCESS;
+            xQueueSend(queue, (void *)cPayload, 0);
+        }
+        if (queue == msg_queue_infected)
+        {
+            reset_infected_btn();
+            ui_textarea_add("Infected message sent to MQTT", NULL, 0);
+        }
+        if (queue == msg_queue_check)
+        {
+            reset_check_btn();
+            ui_textarea_add("Check message sent to MQTT", NULL, 0);
+        }
     }
 }
+
+// static void publisher(AWS_IoT_Client *client, char *base_topic, uint16_t base_topic_len)
+// {
+//     char cPayload[100];
+//     int32_t i = 0;
+
+//     IoT_Publish_Message_Params paramsQOS0;
+//     IoT_Publish_Message_Params paramsQOS1;
+
+//     paramsQOS0.qos = QOS0;
+//     paramsQOS0.payload = (void *)cPayload;
+//     paramsQOS0.isRetained = 0;
+
+//     // Publish and ignore if "ack" was received or  from AWS IoT Core
+//     sprintf(cPayload, "%s : %d ", "Hello from AWS IoT EduKit (QOS0)", i++);
+//     paramsQOS0.payloadLen = strlen(cPayload);
+//     IoT_Error_t rc = aws_iot_mqtt_publish(client, base_topic, base_topic_len, &paramsQOS0);
+//     if (rc != SUCCESS)
+//     {
+//         ESP_LOGE(TAG, "Publish QOS0 error %i", rc);
+//         rc = SUCCESS;
+//     }
+
+//     paramsQOS1.qos = QOS1;
+//     paramsQOS1.payload = (void *)cPayload;
+//     paramsQOS1.isRetained = 0;
+//     // Publish and check if "ack" was sent from AWS IoT Core
+//     sprintf(cPayload, "%s : %d ", "Hello from AWS IoT EduKit (QOS1)", i++);
+//     paramsQOS1.payloadLen = strlen(cPayload);
+//     rc = aws_iot_mqtt_publish(client, base_topic, base_topic_len, &paramsQOS1);
+//     if (rc == MQTT_REQUEST_TIMEOUT_ERROR)
+//     {
+//         ESP_LOGW(TAG, "QOS1 publish ack not received.");
+//         rc = SUCCESS;
+//     }
+// }
 
 void aws_iot_task(void *param)
 {
@@ -175,8 +212,11 @@ void aws_iot_task(void *param)
     mqttInitParams.pDevicePrivateKeyLocation = "#0";
 
 #define CLIENT_ID_LEN (ATCA_SERIAL_NUM_SIZE * 2)
-#define SUBSCRIBE_TOPIC_LEN (CLIENT_ID_LEN + 3)
+// #define SUBSCRIBE_TOPIC_LEN (CLIENT_ID_LEN + 3)
+#define SEEN_PUBLISH_TOPIC_LEN (CLIENT_ID_LEN + 6)
 #define BASE_PUBLISH_TOPIC_LEN (CLIENT_ID_LEN + 2)
+#define INFECTED_PUBLISH_TOPIC_LEN (CLIENT_ID_LEN + 10)
+#define CHECK_PUBLISH_TOPIC_LEN (CLIENT_ID_LEN + 7)
 
     char *client_id = malloc(CLIENT_ID_LEN + 1);
     ATCA_STATUS ret = Atecc608_GetSerialString(client_id);
@@ -186,9 +226,17 @@ void aws_iot_task(void *param)
         abort();
     }
 
-    char subscribe_topic[SUBSCRIBE_TOPIC_LEN];
+    char seen_publish_topic[SEEN_PUBLISH_TOPIC_LEN];
+    snprintf(seen_publish_topic, SEEN_PUBLISH_TOPIC_LEN, "%s/seen", client_id);
+
+    char infected_publish_topic[INFECTED_PUBLISH_TOPIC_LEN];
+    snprintf(infected_publish_topic, INFECTED_PUBLISH_TOPIC_LEN, "%s/infected", client_id);
+
+    char check_publish_topic[CHECK_PUBLISH_TOPIC_LEN];
+    snprintf(check_publish_topic, CHECK_PUBLISH_TOPIC_LEN, "%s/check", client_id);
+
+    // char subscribe_topic[SUBSCRIBE_TOPIC_LEN];
     char base_publish_topic[BASE_PUBLISH_TOPIC_LEN];
-    snprintf(subscribe_topic, SUBSCRIBE_TOPIC_LEN, "%s/#", client_id);
     snprintf(base_publish_topic, BASE_PUBLISH_TOPIC_LEN, "%s/", client_id);
 
     mqttInitParams.mqttCommandTimeout_ms = 20000;
@@ -215,7 +263,7 @@ void aws_iot_task(void *param)
     connectParams.pClientID = client_id;
     connectParams.clientIDLen = CLIENT_ID_LEN;
     connectParams.isWillMsgPresent = false;
-    ui_textarea_add("Connecting to AWS IoT Core...\n", NULL, 0);
+    // ui_textarea_add("Connecting to AWS IoT Core...\n", NULL, 0);
     ESP_LOGI(TAG, "Connecting to AWS IoT Core at %s:%d", mqttInitParams.pHostURL, mqttInitParams.port);
     do
     {
@@ -223,10 +271,10 @@ void aws_iot_task(void *param)
         if (SUCCESS != rc)
         {
             ESP_LOGE(TAG, "Error(%d) connecting to %s:%d", rc, mqttInitParams.pHostURL, mqttInitParams.port);
-            vTaskDelay(pdMS_TO_TICKS(1000));
+            vTaskDelay(pdMS_TO_TICKS(5000));
         }
     } while (SUCCESS != rc);
-    ui_textarea_add("Successfully connected!\n", NULL, 0);
+    // ui_textarea_add("Successfully connected!\n", NULL, 0);
     ESP_LOGI(TAG, "Successfully connected to AWS IoT Core!");
 
     /*
@@ -237,29 +285,29 @@ void aws_iot_task(void *param)
     rc = aws_iot_mqtt_autoreconnect_set_status(&client, true);
     if (SUCCESS != rc)
     {
-        ui_textarea_add("Unable to set Auto Reconnect to true\n", NULL, 0);
+        // ui_textarea_add("Unable to set Auto Reconnect to true\n", NULL, 0);
         ESP_LOGE(TAG, "Unable to set Auto Reconnect to true - %d", rc);
         abort();
     }
 
-    ESP_LOGI(TAG, "Subscribing to '%s'", subscribe_topic);
-    rc = aws_iot_mqtt_subscribe(&client, subscribe_topic, strlen(subscribe_topic), QOS0, iot_subscribe_callback_handler, NULL);
-    if (SUCCESS != rc)
-    {
-        ui_textarea_add("Error subscribing\n", NULL, 0);
-        ESP_LOGE(TAG, "Error subscribing : %d ", rc);
-        abort();
-    }
-    else
-    {
-        ui_textarea_add("Subscribed to topic: %s\n\n", subscribe_topic, SUBSCRIBE_TOPIC_LEN);
-        ESP_LOGI(TAG, "Subscribed to topic '%s'", subscribe_topic);
-    }
+    // ESP_LOGI(TAG, "Subscribing to '%s'", subscribe_topic);
+    // rc = aws_iot_mqtt_subscribe(&client, subscribe_topic, strlen(subscribe_topic), QOS0, iot_subscribe_callback_handler, NULL);
+    // if (SUCCESS != rc)
+    // {
+    //     ui_textarea_add("Error subscribing\n", NULL, 0);
+    //     ESP_LOGE(TAG, "Error subscribing : %d ", rc);
+    //     abort();
+    // }
+    // else
+    // {
+    //     ui_textarea_add("Subscribed to topic: %s\n\n", subscribe_topic, SUBSCRIBE_TOPIC_LEN);
+    //     ESP_LOGI(TAG, "Subscribed to topic '%s'", subscribe_topic);
+    // }
 
     ESP_LOGI(TAG, "\n****************************************\n*  AWS client Id - %s  *\n****************************************\n\n",
              client_id);
 
-    ui_textarea_add("Attempting publish to: %s\n", base_publish_topic, BASE_PUBLISH_TOPIC_LEN);
+    ui_textarea_add("Attempting publish to: %s\n", seen_publish_topic, SEEN_PUBLISH_TOPIC_LEN);
     while ((NETWORK_ATTEMPTING_RECONNECT == rc || NETWORK_RECONNECTED == rc || SUCCESS == rc))
     {
 
@@ -274,11 +322,36 @@ void aws_iot_task(void *param)
         ESP_LOGD(TAG, "Stack remaining for task '%s' is %d bytes", pcTaskGetTaskName(NULL), uxTaskGetStackHighWaterMark(NULL));
         vTaskDelay(pdMS_TO_TICKS(PUBLISH_INTERVAL_MS));
 
-        publisher(&client, base_publish_topic, BASE_PUBLISH_TOPIC_LEN);
+        publisher(&client, seen_publish_topic, SEEN_PUBLISH_TOPIC_LEN, msg_queue);
+
+        vTaskDelay(pdMS_TO_TICKS(PUBLISH_INTERVAL_MS));
+
+        publisher(&client, infected_publish_topic, INFECTED_PUBLISH_TOPIC_LEN, msg_queue_infected);
+
+        vTaskDelay(pdMS_TO_TICKS(PUBLISH_INTERVAL_MS));
+
+        publisher(&client, check_publish_topic, CHECK_PUBLISH_TOPIC_LEN, msg_queue_check);
     }
 
     ESP_LOGE(TAG, "An error occurred in the main loop.");
     abort();
+}
+
+void bl_discovery_task(void *param)
+{
+    while (1)
+    {
+        ESP_LOGI(TAG, "Stopping wifi. Starting BL discovery");
+        stop_wifi();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        start_bl();
+        vTaskDelay(pdMS_TO_TICKS(20000));
+        ESP_LOGI(TAG, "Starting wifi. Stopping BL discovery");
+        stop_bl();
+        vTaskDelay(pdMS_TO_TICKS(1000));
+        start_wifi();
+        vTaskDelay(pdMS_TO_TICKS(120000));
+    }
 }
 
 void app_main()
@@ -287,8 +360,13 @@ void app_main()
     Core2ForAWS_Display_SetBrightness(80);
 
     ui_init();
-    // initialise_wifi();
+    initialise_wifi();
+    initialise_bl();
 
-    // xTaskCreatePinnedToCore(&aws_iot_task, "aws_iot_task", 4096 * 2, NULL, 5, NULL, 1);
-    // xTaskCreatePinnedToCore(&blink_task, "blink_task", 4096 * 1, NULL, 2, &xBlink, 1);
+    msg_queue = xQueueCreate(msg_queue_len, MSG_QUEUE_SIZE * sizeof(char));
+    msg_queue_check = xQueueCreate(msg_queue_len, MSG_QUEUE_SIZE * sizeof(char));
+    msg_queue_infected = xQueueCreate(msg_queue_len, MSG_QUEUE_SIZE * sizeof(char));
+
+    xTaskCreatePinnedToCore(&bl_discovery_task, "bl_discovery_task", 4096 * 4, NULL, 5, NULL, 0);
+    xTaskCreatePinnedToCore(&aws_iot_task, "aws_iot_task", 4096 * 2, NULL, 5, NULL, 1);
 }

@@ -1,0 +1,44 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:PutItem",
+                "dynamodb:GetItem",
+                "dynamodb:Scan",
+                "dynamodb:Query"
+            ],
+            "Resource": [
+                "arn:aws:dynamodb:*:*:table/*",
+                "arn:aws:dynamodb:*:*:table/*/index/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogStream",
+                "logs:PutLogEvents",
+                "logs:CreateLogGroup"
+            ],
+            "Resource": [
+                "arn:aws:logs:*:*:log-group:*",
+                "arn:aws:logs:*:*:log-group:*:log-stream:*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "iot:Publish"
+            ],
+            "Resource": [
+                "arn:aws:iot:*:*:topic/*"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "Resource": "arn:aws:lambda:*:*:function:*"
+        }
+    ]
+}

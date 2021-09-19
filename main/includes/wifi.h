@@ -30,3 +30,5 @@ EventGroupHandle_t wifi_event_group;
 #define DISCONNECTED_BIT BIT1
 
 void initialise_wifi(void);
+void start_wifi(void);
+void stop_wifi(void);

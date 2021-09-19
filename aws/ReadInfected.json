@@ -1,0 +1,12 @@
+{
+    "sql": "SELECT *, topic() as topic, timestamp() as timestamp FROM '+/check'",
+    "ruleDisabled": false,
+    "awsIotSqlVersion": "2016-03-23",
+    "actions": [
+        {
+            "lambda": {
+                "functionArn": "arn:aws:lambda:[region]:[account]:function:checkInfected"
+            }
+        }
+    ]
+}

@@ -3,8 +3,8 @@
 # project subdirectory.
 #
 
-PROJECT_NAME := AWS_IoT_EduKit-Cloud_Connected_Blinky
-PROJECT_VER := 1.4.0
+PROJECT_NAME := Health-Alarm
+PROJECT_VER := 1.0.0
 
 include $(IDF_PATH)/make/project.mk
 

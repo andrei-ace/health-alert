@@ -28,3 +28,5 @@
 void ui_textarea_add(char *txt, char *param, size_t paramLen);
 void ui_wifi_label_update(bool state);
 void ui_init();
+void reset_infected_btn();
+void reset_check_btn();
