@@ -78,20 +78,6 @@ void iot_subscribe_callback_handler(AWS_IoT_Client *pClient, char *topicName, ui
 {
     ESP_LOGI(TAG, "Subscribe callback");
     ESP_LOGI(TAG, "%.*s\t%.*s", topicNameLen, topicName, (int)params->payloadLen, (char *)params->payload);
-    // if (strstr(topicName, "/blink") != NULL)
-    // {
-    //     // Get state of the FreeRTOS task, "blinkTask", using it's task handle.
-    //     // Suspend or resume the task depending on the returned task state
-    //     eTaskState blinkState = eTaskGetState(xBlink);
-    //     if (blinkState == eSuspended)
-    //     {
-    //         vTaskResume(xBlink);
-    //     }
-    //     else
-    //     {
-    //         vTaskSuspend(xBlink);
-    //     }
-    // }
 }
 
 void disconnect_callback_handler(AWS_IoT_Client *pClient, void *data)
@@ -127,7 +113,6 @@ void disconnect_callback_handler(AWS_IoT_Client *pClient, void *data)
 static void publisher(AWS_IoT_Client *client, char *base_topic, uint16_t base_topic_len, QueueHandle_t queue)
 {
     char cPayload[MSG_QUEUE_SIZE];
-    int32_t i = 0;
     IoT_Publish_Message_Params paramsQOS0;
     paramsQOS0.qos = QOS0;
     paramsQOS0.payload = (void *)cPayload;
@@ -157,42 +142,6 @@ static void publisher(AWS_IoT_Client *client, char *base_topic, uint16_t base_to
         }
     }
 }
-
-// static void publisher(AWS_IoT_Client *client, char *base_topic, uint16_t base_topic_len)
-// {
-//     char cPayload[100];
-//     int32_t i = 0;
-
-//     IoT_Publish_Message_Params paramsQOS0;
-//     IoT_Publish_Message_Params paramsQOS1;
-
-//     paramsQOS0.qos = QOS0;
-//     paramsQOS0.payload = (void *)cPayload;
-//     paramsQOS0.isRetained = 0;
-
-//     // Publish and ignore if "ack" was received or  from AWS IoT Core
-//     sprintf(cPayload, "%s : %d ", "Hello from AWS IoT EduKit (QOS0)", i++);
-//     paramsQOS0.payloadLen = strlen(cPayload);
-//     IoT_Error_t rc = aws_iot_mqtt_publish(client, base_topic, base_topic_len, &paramsQOS0);
-//     if (rc != SUCCESS)
-//     {
-//         ESP_LOGE(TAG, "Publish QOS0 error %i", rc);
-//         rc = SUCCESS;
-//     }
-
-//     paramsQOS1.qos = QOS1;
-//     paramsQOS1.payload = (void *)cPayload;
-//     paramsQOS1.isRetained = 0;
-//     // Publish and check if "ack" was sent from AWS IoT Core
-//     sprintf(cPayload, "%s : %d ", "Hello from AWS IoT EduKit (QOS1)", i++);
-//     paramsQOS1.payloadLen = strlen(cPayload);
-//     rc = aws_iot_mqtt_publish(client, base_topic, base_topic_len, &paramsQOS1);
-//     if (rc == MQTT_REQUEST_TIMEOUT_ERROR)
-//     {
-//         ESP_LOGW(TAG, "QOS1 publish ack not received.");
-//         rc = SUCCESS;
-//     }
-// }
 
 void aws_iot_task(void *param)
 {
@@ -277,11 +226,6 @@ void aws_iot_task(void *param)
     // ui_textarea_add("Successfully connected!\n", NULL, 0);
     ESP_LOGI(TAG, "Successfully connected to AWS IoT Core!");
 
-    /*
-     * Enable Auto Reconnect functionality. Minimum and Maximum time for exponential backoff for retries.
-     *  #AWS_IOT_MQTT_MIN_RECONNECT_WAIT_INTERVAL
-     *  #AWS_IOT_MQTT_MAX_RECONNECT_WAIT_INTERVAL
-     */
     rc = aws_iot_mqtt_autoreconnect_set_status(&client, true);
     if (SUCCESS != rc)
     {
@@ -289,20 +233,6 @@ void aws_iot_task(void *param)
         ESP_LOGE(TAG, "Unable to set Auto Reconnect to true - %d", rc);
         abort();
     }
-
-    // ESP_LOGI(TAG, "Subscribing to '%s'", subscribe_topic);
-    // rc = aws_iot_mqtt_subscribe(&client, subscribe_topic, strlen(subscribe_topic), QOS0, iot_subscribe_callback_handler, NULL);
-    // if (SUCCESS != rc)
-    // {
-    //     ui_textarea_add("Error subscribing\n", NULL, 0);
-    //     ESP_LOGE(TAG, "Error subscribing : %d ", rc);
-    //     abort();
-    // }
-    // else
-    // {
-    //     ui_textarea_add("Subscribed to topic: %s\n\n", subscribe_topic, SUBSCRIBE_TOPIC_LEN);
-    //     ESP_LOGI(TAG, "Subscribed to topic '%s'", subscribe_topic);
-    // }
 
     ESP_LOGI(TAG, "\n****************************************\n*  AWS client Id - %s  *\n****************************************\n\n",
              client_id);
